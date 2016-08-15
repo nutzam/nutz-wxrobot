@@ -7,8 +7,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -30,6 +28,7 @@ import org.nutz.http.Sender;
 import org.nutz.json.Json;
 import org.nutz.json.JsonFormat;
 import org.nutz.lang.Lang;
+import org.nutz.lang.MapKeyConvertor;
 import org.nutz.lang.Streams;
 import org.nutz.lang.Strings;
 import org.nutz.lang.random.R;
@@ -40,6 +39,7 @@ import org.nutz.mapl.Mapl;
 import org.nutz.runner.NutLock;
 import org.nutz.runner.NutRunner;
 import org.nutz.wxrobot.bean.SyncKey;
+import org.nutz.wxrobot.bean.WxInMsg;
 
 import sun.misc.BASE64Decoder;
 
@@ -66,7 +66,6 @@ public class Client {
 
     // timeout
     private int wait_timeout = 10;
-    private int listen_timeout = 2;
     private String wait_url;
 
     // listener
@@ -76,7 +75,8 @@ public class Client {
     // 微信相关
     private String appid = "wx782c26e4c19acffb"; // 网页版里自带的
     private String uuid;
-    private String deviceId = "e" + System.currentTimeMillis(); // 官方规定的格式，直接copy一个过来的
+    // private String deviceId = "e" + System.currentTimeMillis(); //
+    private String deviceId = "e1471230987"; // 官方规定的格式，直接copy一个过来的
     private String skey;
     private String wxuin;
     private String wxsid;
@@ -88,6 +88,12 @@ public class Client {
     private String nickName;
     private List<Object> contacts = new ArrayList<Object>();
     private Map<String, Object> members = new HashMap<String, Object>();
+    private List<String> pushServers = Arrays.asList("webpush.weixin.qq.com",
+                                                     "webpush2.weixin.qq.com",
+                                                     "webpush.wechat.com",
+                                                     "webpush1.wechat.com",
+                                                     "webpush2.wechat.com",
+                                                     "webpush1.wechatapp.com");
     // 微信特殊账号 该列表copy自
     // https://github.com/biezhi/wechat-robot/blob/f7728a4050dddc5edd9fbe3c988689784f53cb3c/src/main/java/me/biezhi/weixin/App.java
     private List<String> specialUsers = Arrays.asList("newsapp",
@@ -125,11 +131,18 @@ public class Client {
                                                       "userexperience_alarm",
                                                       "notification_messages");
 
+    private static Map<Integer, String> msgTypeLabel = new HashMap<Integer, String>();
+
     static {
         // Avoid Error：
         // javax.net.ssl.SSLProtocolException:
         // handshake alert: unrecognized_name
         System.setProperty("jsse.enableSNIExtension", "false");
+
+        msgTypeLabel.put(1, "文字");
+        msgTypeLabel.put(3, "图片");
+        msgTypeLabel.put(34, "语音");
+        msgTypeLabel.put(42, "名片");
     }
 
     // ------------------------- 几个util方法
@@ -175,6 +188,24 @@ public class Client {
             }
         }
         return false;
+    }
+
+    private WxInMsg convertWxInMsg(Object msg) {
+        Map<String, Object> map = (Map<String, Object>) msg;
+        Lang.convertMapKey(map, new MapKeyConvertor() {
+            @Override
+            public String convertKey(String key) {
+                return Strings.lowerFirst(key);
+            }
+        }, true);
+        return Lang.map2Object(map, WxInMsg.class);
+    }
+
+    private String getUserName(String nmkey) {
+        if (members.containsKey(nmkey)) {
+            return (String) Mapl.cell(members.get(nmkey), "NickName");
+        }
+        return nmkey;
     }
 
     // ------------------------ 微信相关
@@ -298,16 +329,18 @@ public class Client {
                     log.infof("WAIT_LOGIN Re_Url: %s", redirect_url);
                     log.infof("WAIT_LOGIN Wx_Url: %s", weixin_url);
                     // FIXME
-                    String redirectHost = "wx.qq.com";
-                    try {
-                        URL pmURL = new URL(redirect_url);
-                        redirectHost = pmURL.getHost();
-                    }
-                    catch (MalformedURLException e) {
-                        e.printStackTrace();
-                    }
-                    String pushServer = PushServerUtil.getPushServer(redirectHost);
-                    webpush_url = "https://" + pushServer + "/cgi-bin/mmwebwx-bin";
+                    // String redirectHost = "wx.qq.com";
+                    // try {
+                    // URL pmURL = new URL(redirect_url);
+                    // redirectHost = pmURL.getHost();
+                    // }
+                    // catch (MalformedURLException e) {
+                    // e.printStackTrace();
+                    // }
+                    // String pushServer =
+                    // PushServerUtil.getPushServer(redirectHost);
+                    // webpush_url = "https://" + pushServer +
+                    // "/cgi-bin/mmwebwx-bin";
                     return true;
                 }
                 // 201
@@ -407,6 +440,7 @@ public class Client {
             user = Mapl.cell(respJson, "User");
             userName = (String) Mapl.cell(respJson, "User.UserName");
             nickName = (String) Mapl.cell(respJson, "User.NickName");
+            members.put(userName, user);
             log.infof("WX_INIT UserUN: %s", userName);
             log.infof("WX_INIT UserNN: %s", nickName);
             log.infof("WX_INIT UserJson: \n%s", Json.toJson(user));
@@ -457,37 +491,23 @@ public class Client {
      */
     private int[] SYNC_CHECK() {
         int[] arr = new int[2];
-        String url = String.format("%s/synccheck?skey=%s&uin=%s&sid=%s&deviceid=%s&synckey=%s&_=%d&r=%d",
-                                   webpush_url,
-                                   skey,
-                                   wxuin,
-                                   wxsid,
-                                   deviceId,
-                                   syncKey.toString(),
-                                   System.currentTimeMillis(),
-                                   System.currentTimeMillis() + R.random(10000, 90000));
-        Request req = Request.create(url, METHOD.GET)
-                             // .setHeader(Header.create()
-                             // .set("User-Agent",
-                             // "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6)
-                             // AppleWebKit/537.36 (KHTML, like Gecko)
-                             // Chrome/52.0.2743.116 Safari/537.36"))
-                             // .setCookie(cookie)
-                             // .setData(Json.toJson(BaseRequestJson()))
-                             .offEncode(true);
+        String url = String.format("%s/cgi-bin/mmwebwx-bin/synccheck", webpush_url);
+        NutMap params = NutMap.NEW()
+                              .addv("_", System.currentTimeMillis())
+                              .addv("skey", skey)
+                              .addv("uin", wxuin)
+                              .addv("sid", wxsid)
+                              .addv("deviceid", deviceId)
+                              .addv("synckey", syncKey.toString());
+        Request req = Request.create(url, METHOD.GET, params).setCookie(cookie);
         log.infof("SYNC_CHECK Url: %s", req.getUrl());
         Response resp = Sender.create(req).send();
         String respBody = resp.getContent();
         if (!Strings.isBlank(respBody)) {
-            System.out.println(respBody);
-            // 获取retcode与selector
             String retcode = matchFind("retcode:\"(\\d+)\",", respBody);
             String selector = matchFind("selector:\"(\\d+)\"}", respBody);
             if (null != retcode && null != selector) {
-                // retcode:
-                // 0 正常
-                // 1100 失败/登出微信
-
+                // retcode: 0 正常 1100 失败/登出微信
                 // 正常返回结果
                 // window.synccheck={retcode:"0",selector:"0"}
                 // 有消息返回结果
@@ -500,7 +520,7 @@ public class Client {
                 log.infof("SYNC_CHECK Result: %s", Json.toJson(arr, JsonFormat.compact()));
             }
         } else {
-            System.out.println("empty body");
+            log.infof("SYNC_CHECK Result: %s", "empty resp");
         }
         return arr;
     }
@@ -527,7 +547,14 @@ public class Client {
         String respBody = resp.getContent();
 
         if (!Strings.isBlank(respBody)) {
-            Object respJson = Json.fromJson(respBody);
+            Object respJson;
+            try {
+                respJson = Json.fromJson(respBody);
+            }
+            catch (Exception e) {
+                log.error("Json Parse Error");
+                return null;
+            }
             // 获取对象中特定的属性
             // SyncKey
             Object skObject = Mapl.cell(respJson, "SyncKey");
@@ -542,6 +569,42 @@ public class Client {
             }
         }
         return null;
+    }
+
+    private void WX_SEND_MSG(String content, String toUserName) {
+        // 组装消息
+        NutMap outMsg = NutMap.NEW();
+        outMsg.put("Type", 1);
+        outMsg.put("Content", content);
+        outMsg.put("FromUserName", userName);
+        outMsg.put("ToUserName", toUserName);
+        outMsg.put("LocalID", System.currentTimeMillis() + R.random(1000, 9999));
+        outMsg.put("ClientMsgId", System.currentTimeMillis() + R.random(1000, 9999));
+        // 发送
+        String url = String.format("%s/webwxsendmsg?lang=zh_CN&pass_ticket=%s",
+                                   weixin_url,
+                                   pass_ticket);
+        Request req = Request.create(url, METHOD.POST)
+                             .setHeader(Header.create().set("Content-Type",
+                                                            "application/json;charset=utf-8"))
+                             .setCookie(cookie)
+                             .setData(Json.toJson(BaseRequestJson().addv("Msg", outMsg)
+                                                                   .addv("rr",
+                                                                         System.currentTimeMillis())));
+        log.infof("WX_SEND_MSG Url: %s", req.getUrl());
+        Response resp = Sender.create(req).send();
+        String respBody = resp.getContent();
+        if (!Strings.isBlank(respBody)) {
+            Object respJson = Json.fromJson(respBody);
+            int ret = (Integer) Mapl.cell(respJson, "BaseResponse.Ret");
+            String errMsg = (String) Mapl.cell(respJson, "BaseResponse.ErrMsg");
+            if (ret == 0) {
+                log.infof("WX_SEND_MSG : \n%s", Json.toJson(outMsg));
+            } else {
+                log.errorf("WX_SEND_MSG Ret: %d", ret);
+                log.errorf("WX_SEND_MSG Err: %s", errMsg);
+            }
+        }
     }
 
     /**
@@ -576,7 +639,7 @@ public class Client {
                     String unm = (String) Mapl.cell(m, "UserName");
                     String nnm = (String) Mapl.cell(m, "NickName");
                     members.put(unm, m);
-                    log.infof("GET_CONTACT NM: %s v_%d", nnm, vflag);
+                    log.infof("GET_CONTACT NM: v_%d %s ", vflag, nnm);
                     // 公众号24 服务号29
                     if (vflag != 0) {
                         continue;
@@ -639,6 +702,9 @@ public class Client {
         START_LISTEN();
     }
 
+    int pi = 0;
+    int px = pushServers.size();
+
     /**
      * 开始监听
      */
@@ -648,31 +714,70 @@ public class Client {
             @Override
             public long exec() throws Exception {
                 int[] arr = SYNC_CHECK();
-                if (arr[0] == 1100) {
+                while (arr[0] == 1100) {
+                    if (pi >= px) {
+                        // pi = 0;
+                        // 尝试了所有的都不行的话，退出吧
+                        break;
+                    }
+                    webpush_url = pushServers.get(pi);
+                    pi++;
+                    Lang.quiteSleep(1000);
                     arr = SYNC_CHECK();
                 }
                 if (arr[0] == 0) {
                     // 发送信息
-                    if (arr[1] == 2) {
+                    if (arr[1] == 2 || arr[1] == 6) {
                         List<Object> data = WX_SYNC();
-                        System.out.println("收到");
+                        if (data != null) {
+                            log.infof("一次接收[%d]条消息\n", data.size());
+                            for (Object msg : data) {
+                                WxInMsg inMsg = convertWxInMsg(msg);
+                                log.infof("消息ID：%s", inMsg.getMsgID());
+                                log.infof("来自用户：%s", getUserName(inMsg.getFromUserName()));
+                                log.infof("消息类型：%s",
+                                          msgTypeLabel.containsKey(inMsg.getMsgType()) ? msgTypeLabel.get(inMsg.getMsgType())
+                                                                                       : ("["
+                                                                                          + inMsg.getMsgType()
+                                                                                          + "]"));
+                                // 不是自己发的，响应一下
+                                if (!userName.equals(inMsg.getFromUserName())) {
+                                    // 文字类型
+                                    if (inMsg.getMsgType() == 1) {
+                                        log.infof("消息内容：%s", inMsg.getContent());
+                                        WX_SEND_MSG("收到消息："
+                                                    + inMsg.getContent(),
+                                                    inMsg.getFromUserName());
+                                    } else {
+                                        // 图片
+                                        if (inMsg.getMsgType() == 3) {}
+                                        // 语音
+                                        if (inMsg.getMsgType() == 34) {}
+                                        // 名片
+                                        if (inMsg.getMsgType() == 42) {}
+                                        WX_SEND_MSG("暂时还不支持该消息类型", inMsg.getFromUserName());
+                                    }
+                                }
+                            }
+                        }
                     }
-                    // 接受信息
-                    else if (arr[1] == 6) {
-                        List<Object> data = WX_SYNC();
-                        System.out.println("发送");
-                    } else {
-                        System.out.println(arr[1]);
+                    // 其他类型
+                    else if (arr[1] == 7) {
+                        WX_SYNC();
                     }
-                    return 1000 * 5;
+                    // 其他类型
+                    else {
+                        System.out.println("不处理类型：" + arr[1]);
+                    }
+                    return 100;
                 } else {
                     log.errorf("START_LISTEN Ret: %d", arr[0]);
-                    // log.infof("START_LISTEN Status: stop");
-                    // listenerLock.setStop(true);
-                    return 1000;
+                    log.infof("START_LISTEN Status: stop");
+                    listenerLock.setStop(true);
+                    return 10;
                 }
             }
-        };
+        }.setSleepAfterError(1);
         listenerLock = listener.getLock();
         new Thread(listener).start();
     }

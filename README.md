@@ -7,8 +7,10 @@
 * [x] 获取登录二维码
 * [x] 模拟网页登录过程
 * [x] 获取联系人列表
-* [ ] 解决retcode:1100的问题
-* [ ] 简单的响应信息
+* [x] 解决retcode:1100的问题
+* [x] 简单的响应文字信息
+* [ ] 解决Remote host closed connection during handshake
+* [ ] 响应其他类型信息
 * [ ] log中显示登录二维码，方便服务器部署
 * [ ] 补充文档
 * [ ] 设计主页&logo
@@ -17,9 +19,7 @@
 
 ## 运行时可能遇到的问题
 
-1. nutz需要最新版，maven库中暂时不是，所以需要手动添加响应依赖
-
-2. 报错：Could not generate DH keypair
+1. 报错：Could not generate DH keypair
 
 ```java
 Exception in thread "main" org.nutz.http.HttpException: url=https://login.weixin.qq.com/jslogin?appid=wx782c26e4c19acffb&fun=new&lang=zh_CN&_=1470996468968
