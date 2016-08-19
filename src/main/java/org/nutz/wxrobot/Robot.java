@@ -28,18 +28,19 @@ import org.nutz.http.Sender;
 import org.nutz.json.Json;
 import org.nutz.json.JsonFormat;
 import org.nutz.lang.Lang;
-import org.nutz.lang.MapKeyConvertor;
 import org.nutz.lang.Streams;
 import org.nutz.lang.Strings;
-import org.nutz.lang.random.R;
 import org.nutz.lang.util.NutMap;
 import org.nutz.log.Log;
 import org.nutz.log.Logs;
 import org.nutz.mapl.Mapl;
+import org.nutz.qrcode.QRCode;
+import org.nutz.qrcode.QRCodeFormat;
 import org.nutz.runner.NutLock;
 import org.nutz.runner.NutRunner;
 import org.nutz.wxrobot.bean.SyncKey;
 import org.nutz.wxrobot.bean.WxInMsg;
+import org.nutz.wxrobot.bean.WxOutMsg;
 
 import sun.misc.BASE64Decoder;
 
@@ -49,7 +50,7 @@ import sun.misc.BASE64Decoder;
  * @author pw
  *
  */
-public class Client {
+public class Robot {
 
     private Log log = Logs.get();
 
@@ -65,12 +66,14 @@ public class Client {
     private boolean showAvatar;
 
     // timeout
-    private int wait_timeout = 10;
+    private int wait_timeout = 15;
     private String wait_url;
 
     // listener
     private NutRunner listener;
     private NutLock listenerLock;
+
+    private DefaultMsgHandler msgHandler;
 
     // 微信相关
     private String appid = "wx782c26e4c19acffb"; // 网页版里自带的
@@ -192,12 +195,13 @@ public class Client {
 
     private WxInMsg convertWxInMsg(Object msg) {
         Map<String, Object> map = (Map<String, Object>) msg;
-        Lang.convertMapKey(map, new MapKeyConvertor() {
-            @Override
-            public String convertKey(String key) {
-                return Strings.lowerFirst(key);
-            }
-        }, true);
+        // FIXME 为啥需要首字符小写？ @wenndal
+        // Lang.convertMapKey(map, new MapKeyConvertor() {
+        // @Override
+        // public String convertKey(String key) {
+        // return Strings.lowerFirst(key);
+        // }
+        // }, true);
         return Lang.map2Object(map, WxInMsg.class);
     }
 
@@ -208,7 +212,29 @@ public class Client {
         return nmkey;
     }
 
+    private String getUserType(String nmkey) {
+        if (nmkey.startsWith("@@")) {
+            return "群消息";
+        }
+        if (nmkey.startsWith("@")) {
+            return "个人消息";
+        }
+        return "其他消息";
+    }
+
     // ------------------------ 微信相关
+
+    /**
+     * set MsgHandler
+     * 
+     * @param msgHandler
+     * @return
+     */
+    public Robot setMsgHandler(DefaultMsgHandler msgHandler) {
+        this.msgHandler = msgHandler;
+        this.msgHandler.setRobot(this);
+        return this;
+    }
 
     /**
      * get UUID
@@ -280,9 +306,59 @@ public class Client {
     private boolean SHOW_QR_PIC() {
         File qrcode = QR_PIC();
         if (qrcode != null) {
-            return openImage(qrcode);
+            SHOW_QR_PIC_CONSOLE(QRCode.from(qrcode));
+            // openImage(qrcode);
+            return true;
         }
         return false;
+    }
+
+    // private static String BLACK = "\033[40m \033[0m";
+    // private static String WHITE = "\033[47m \033[0m";
+    private static String BLACK = "██";
+    private static String WHITE = "  ";
+    private static boolean WITH_BORDER = true;
+
+    private void SHOW_QR_PIC_CONSOLE(String qrStr) {
+        log.infof("QR_CODE URL: %s", qrStr);
+        BufferedImage img = QRCode.NEW(qrStr,
+                                       QRCodeFormat.NEW()
+                                                   .setSize(36)
+                                                   .setMargin(0)
+                                                   .setErrorCorrectionLevel('H')
+                                                   .setImageFormat("png"))
+                                  .getQrcodeImage();
+        // TODO 改进输出，提高二维码识别率
+        int green = 0, red = 0, blue = 0;
+        int imageWidth = img.getWidth();
+        int imageHeight = img.getHeight();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < imageWidth; i++) {
+            for (int j = 0; j < imageHeight; j++) {
+                Object data = img.getRaster().getDataElements(i, j, null);
+                red = img.getColorModel().getRed(data);
+                blue = img.getColorModel().getBlue(data);
+                green = img.getColorModel().getGreen(data);
+                if (WITH_BORDER) {
+                    if (i == 0 || i == imageWidth - 1) {
+                        sb.append(BLACK);
+                        continue;
+                    } else if (j == 0 || j == imageHeight - 1) {
+                        sb.append(BLACK);
+                        continue;
+                    }
+                }
+                if (red < 20) {
+                    sb.append(BLACK);
+                } else {
+                    sb.append(WHITE);
+                }
+            }
+            if (i != imageWidth - 1) {
+                sb.append("\n");
+            }
+        }
+        log.infof("QR_CODE Console:\n%s", sb.toString());
     }
 
     /**
@@ -328,19 +404,6 @@ public class Client {
                     weixin_url = redirect_url.substring(0, this.redirect_url.lastIndexOf("/"));
                     log.infof("WAIT_LOGIN Re_Url: %s", redirect_url);
                     log.infof("WAIT_LOGIN Wx_Url: %s", weixin_url);
-                    // FIXME
-                    // String redirectHost = "wx.qq.com";
-                    // try {
-                    // URL pmURL = new URL(redirect_url);
-                    // redirectHost = pmURL.getHost();
-                    // }
-                    // catch (MalformedURLException e) {
-                    // e.printStackTrace();
-                    // }
-                    // String pushServer =
-                    // PushServerUtil.getPushServer(redirectHost);
-                    // webpush_url = "https://" + pushServer +
-                    // "/cgi-bin/mmwebwx-bin";
                     return true;
                 }
                 // 201
@@ -354,7 +417,7 @@ public class Client {
                             String imageDataBytes = userAvatar.substring(userAvatar.indexOf(",")
                                                                          + 1);
                             userAvatarFile = base64Image(imageDataBytes);
-                            openImage(userAvatarFile);
+                            // openImage(userAvatarFile);
                             log.infof("USR_AVATAR Path: %s", userAvatarFile.getAbsolutePath());
                         }
                     }
@@ -571,42 +634,6 @@ public class Client {
         return null;
     }
 
-    private void WX_SEND_MSG(String content, String toUserName) {
-        // 组装消息
-        NutMap outMsg = NutMap.NEW();
-        outMsg.put("Type", 1);
-        outMsg.put("Content", content);
-        outMsg.put("FromUserName", userName);
-        outMsg.put("ToUserName", toUserName);
-        outMsg.put("LocalID", System.currentTimeMillis() + R.random(1000, 9999));
-        outMsg.put("ClientMsgId", System.currentTimeMillis() + R.random(1000, 9999));
-        // 发送
-        String url = String.format("%s/webwxsendmsg?lang=zh_CN&pass_ticket=%s",
-                                   weixin_url,
-                                   pass_ticket);
-        Request req = Request.create(url, METHOD.POST)
-                             .setHeader(Header.create().set("Content-Type",
-                                                            "application/json;charset=utf-8"))
-                             .setCookie(cookie)
-                             .setData(Json.toJson(BaseRequestJson().addv("Msg", outMsg)
-                                                                   .addv("rr",
-                                                                         System.currentTimeMillis())));
-        log.infof("WX_SEND_MSG Url: %s", req.getUrl());
-        Response resp = Sender.create(req).send();
-        String respBody = resp.getContent();
-        if (!Strings.isBlank(respBody)) {
-            Object respJson = Json.fromJson(respBody);
-            int ret = (Integer) Mapl.cell(respJson, "BaseResponse.Ret");
-            String errMsg = (String) Mapl.cell(respJson, "BaseResponse.ErrMsg");
-            if (ret == 0) {
-                log.infof("WX_SEND_MSG : \n%s", Json.toJson(outMsg));
-            } else {
-                log.errorf("WX_SEND_MSG Ret: %d", ret);
-                log.errorf("WX_SEND_MSG Err: %s", errMsg);
-            }
-        }
-    }
-
     /**
      * get all contact
      * 
@@ -670,6 +697,10 @@ public class Client {
     }
 
     public void run() {
+        // 检查msgHandler
+        if (null == msgHandler) {
+            setMsgHandler(new DefaultMsgHandler());
+        }
         // 获取UUID
         if (null == QR_UUID()) {
             return;
@@ -734,7 +765,8 @@ public class Client {
                             for (Object msg : data) {
                                 WxInMsg inMsg = convertWxInMsg(msg);
                                 log.infof("消息ID：%s", inMsg.getMsgID());
-                                log.infof("来自用户：%s", getUserName(inMsg.getFromUserName()));
+                                log.infof("用户名称：%s", getUserName(inMsg.getFromUserName()));
+                                log.infof("用户类型：%s", getUserType(inMsg.getFromUserName()));
                                 log.infof("消息类型：%s",
                                           msgTypeLabel.containsKey(inMsg.getMsgType()) ? msgTypeLabel.get(inMsg.getMsgType())
                                                                                        : ("["
@@ -742,20 +774,10 @@ public class Client {
                                                                                           + "]"));
                                 // 不是自己发的，响应一下
                                 if (!userName.equals(inMsg.getFromUserName())) {
-                                    // 文字类型
-                                    if (inMsg.getMsgType() == 1) {
-                                        log.infof("消息内容：%s", inMsg.getContent());
-                                        WX_SEND_MSG("收到消息："
-                                                    + inMsg.getContent(),
-                                                    inMsg.getFromUserName());
-                                    } else {
-                                        // 图片
-                                        if (inMsg.getMsgType() == 3) {}
-                                        // 语音
-                                        if (inMsg.getMsgType() == 34) {}
-                                        // 名片
-                                        if (inMsg.getMsgType() == 42) {}
-                                        WX_SEND_MSG("暂时还不支持该消息类型", inMsg.getFromUserName());
+                                    if (!msgHandler.handle(inMsg)) {
+                                        WxOutMsg outMsg = WxOutMsg.createText("暂时无法处理该信息");
+                                        Wxs.fix(inMsg, outMsg);
+                                        sendMsg(outMsg);
                                     }
                                 }
                             }
@@ -780,6 +802,58 @@ public class Client {
         }.setSleepAfterError(1);
         listenerLock = listener.getLock();
         new Thread(listener).start();
+    }
+
+    // -------------------------- 可以被handler调用的方法
+
+    public boolean sendMsg(WxOutMsg outMsg) {
+        // 发送
+        String url = String.format("%s/webwxsendmsg?lang=zh_CN&pass_ticket=%s",
+                                   weixin_url,
+                                   pass_ticket);
+        Request req = Request.create(url, METHOD.POST)
+                             .setHeader(Header.create().set("Content-Type",
+                                                            "application/json;charset=utf-8"))
+                             .setCookie(cookie)
+                             .setData(Json.toJson(BaseRequestJson().addv("Msg", outMsg)
+                                                                   .addv("rr",
+                                                                         System.currentTimeMillis())));
+        log.infof("WX_SEND_MSG Url: %s", req.getUrl());
+        Response resp = Sender.create(req).send();
+        String respBody = resp.getContent();
+        if (!Strings.isBlank(respBody)) {
+            Object respJson = Json.fromJson(respBody);
+            int ret = (Integer) Mapl.cell(respJson, "BaseResponse.Ret");
+            String errMsg = (String) Mapl.cell(respJson, "BaseResponse.ErrMsg");
+            if (ret == 0) {
+                log.infof("WX_SEND_MSG : \n%s", Json.toJson(outMsg));
+                return true;
+            } else {
+                log.errorf("WX_SEND_MSG Ret: %d", ret);
+                log.errorf("WX_SEND_MSG Err: %s", errMsg);
+            }
+        }
+        return false;
+    }
+
+    public boolean sendFile() {
+        // TODO
+        return false;
+    }
+
+    public boolean sendImage() {
+        // TODO
+        return false;
+    }
+
+    public boolean sendVideo() {
+        // TODO
+        return false;
+    }
+
+    public boolean sendLink() {
+        // TODO
+        return false;
     }
 
 }

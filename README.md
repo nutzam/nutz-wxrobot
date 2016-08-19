@@ -9,9 +9,11 @@
 * [x] 获取联系人列表
 * [x] 解决retcode:1100的问题
 * [x] 简单的响应文字信息
+* [x] log中显示登录二维码，方便服务器部署
+* [ ] 自动添加好友
+* [ ] 文档：如何注册一个新的微信号（个人）
 * [ ] 解决Remote host closed connection during handshake
 * [ ] 响应其他类型信息
-* [ ] log中显示登录二维码，方便服务器部署
 * [ ] 补充文档
 * [ ] 设计主页&logo
 * [ ] web版监控页面
@@ -54,11 +56,13 @@ Caused by: javax.net.ssl.SSLException: java.lang.RuntimeException: Could not gen
 4. [http://blog.csdn.net/liuguangqiang/article/details/52130782](http://blog.csdn.net/liuguangqiang/article/details/52130782)
 5. [http://leo108.com/pid-2161.asp](http://leo108.com/pid-2161.asp)
 6. [http://ask.seowhy.com/article/27](http://ask.seowhy.com/article/27)
+7. [http://www.07net01.com/2016/01/1201188.html](http://www.07net01.com/2016/01/1201188.html)
 
 ## 参考项目
 
-[littlecodersh/ItChat](https://github.com/littlecodersh/ItChat):Python版微信机器人
-[biezhi/wechat-robot](https://github.com/biezhi/wechat-robot):Java版微信机器人
+1. [littlecodersh/ItChat](https://github.com/littlecodersh/ItChat):Python版微信机器人
+2. [biezhi/wechat-robot](https://github.com/biezhi/wechat-robot):Java版微信机器人
+3. [https://github.com/zhex/go-qrcode-terminal](https://github.com/zhex/go-qrcode-terminal):Golang命令行下输出二维码
 
 
 

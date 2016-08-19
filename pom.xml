@@ -42,11 +42,11 @@
             <artifactId>nutz</artifactId>
             <version>1.r.58-SNAPSHOT</version>
         </dependency>
-<!-- 		<dependency>
+        <dependency>
             <groupId>org.nutz</groupId>
-            <artifactId>nutzwx</artifactId>
-            <version>1.r.58-SNAPSHOT</version>
-        </dependency> -->
+            <artifactId>nutz-plugins-qrcode</artifactId>
+            <version>1.r.57</version>
+        </dependency>
 	</dependencies>
 
 	<build>
