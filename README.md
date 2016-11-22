@@ -57,6 +57,7 @@ Caused by: javax.net.ssl.SSLException: java.lang.RuntimeException: Could not gen
 5. [http://leo108.com/pid-2161.asp](http://leo108.com/pid-2161.asp)
 6. [http://ask.seowhy.com/article/27](http://ask.seowhy.com/article/27)
 7. [http://www.07net01.com/2016/01/1201188.html](http://www.07net01.com/2016/01/1201188.html)
+8. [https://github.com/xiangzhai/qwx/tree/master/doc](https://github.com/xiangzhai/qwx/tree/master/doc)
 
 ## 参考项目
 

@@ -12,8 +12,8 @@ import org.nutz.wxrobot.bean.WxOutMsg;
  */
 public class DefaultMsgHandler implements MsgHandler {
 
-    private Log log = Logs.get();
-    private Robot robot;
+    protected Log log = Logs.get();
+    protected Robot robot;
 
     protected void setRobot(Robot robot) {
         this.robot = robot;
